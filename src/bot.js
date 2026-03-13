@@ -91,6 +91,22 @@ function apiRequest(method, path, body) {
 }
 
 /**
+ * Mattermost websocket event fields are usually JSON strings, but depending on
+ * gateway/proxy layers they may already be objects.
+ */
+function parseEventJson(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Thin client object passed to command handlers so they can post messages.
  */
 const client = {
@@ -184,7 +200,11 @@ async function start() {
 
     if (reactionMonitorEnabled && event.event === 'reaction_added') {
       try {
-        const reaction = JSON.parse(event.data.reaction || '{}');
+          const reaction = parseEventJson(event.data.reaction);
+          if (!reaction || !reaction.post_id || !reaction.user_id) {
+            console.warn('Reaction event ignored because payload was missing post_id/user_id.');
+            return;
+          }
         const username = await getUsernameById(reaction.user_id);
         if (username) {
             const result = reactionMonitor.recordReaction({
@@ -200,8 +220,8 @@ async function start() {
                   `${emoji}Reaction from @${result.username} registered for this message.`,
                   result.channelId,
                 );
-              }
-            } else {
+            }
+          } else {
               console.log(`Reaction ignored for post ${reaction.post_id} from @${username} (post not tracked or user not pending).`);
             }
           } else {
@@ -215,10 +235,8 @@ async function start() {
 
     if (event.event !== 'posted') return;
 
-    let post;
-    try {
-      post = JSON.parse(event.data.post);
-    } catch {
+      const post = parseEventJson(event.data.post);
+      if (!post || !post.id || !post.channel_id || !post.user_id) {
       return;
     }
 
