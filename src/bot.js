@@ -20,6 +20,7 @@ const {
   REACTION_MONITOR_CHANNEL_ID,
   REACTION_MONITOR_USERS,
   REACTION_TIMEOUT_MINUTES,
+  REACTION_MONITOR_CONFIRM_REACTIONS,
 } = process.env;
 
 if (!MATTERMOST_URL || !MATTERMOST_TOKEN) {
@@ -35,11 +36,14 @@ const monitorChannelIds = String(
   .filter(Boolean);
 const monitorUsers = String(REACTION_MONITOR_USERS || '')
   .split(',')
-  .map((name) => name.trim().toLowerCase())
+  .map((name) => name.trim().replace(/^@/, '').toLowerCase())
   .filter(Boolean);
 const reactionTimeoutMinutes = parseInt(REACTION_TIMEOUT_MINUTES || '60', 10);
 const reactionMonitorEnabled = monitorChannelIds.length > 0 && monitorUsers.length > 0;
 const alertThreshold = parseInt(NUDGE_ALERT_THRESHOLD || '5', 10);
+const confirmReactionsEnabled = /^(1|true|yes|on)$/i.test(
+  String(REACTION_MONITOR_CONFIRM_REACTIONS || ''),
+);
 
 const reactionMonitor = createReactionMonitor({
   channelIds: monitorChannelIds,
@@ -183,10 +187,25 @@ async function start() {
         const reaction = JSON.parse(event.data.reaction || '{}');
         const username = await getUsernameById(reaction.user_id);
         if (username) {
-          reactionMonitor.recordReaction({
+            const result = reactionMonitor.recordReaction({
             postId: reaction.post_id,
             username,
           });
+
+            if (result.recognized) {
+              console.log(`Reaction recognized for post ${result.postId} from @${result.username}.`);
+              if (confirmReactionsEnabled && result.channelId) {
+                const emoji = reaction.emoji_name ? `:${reaction.emoji_name}: ` : '';
+                await client.postMessage(
+                  `${emoji}Reaction from @${result.username} registered for this message.`,
+                  result.channelId,
+                );
+              }
+            } else {
+              console.log(`Reaction ignored for post ${reaction.post_id} from @${username} (post not tracked or user not pending).`);
+            }
+          } else {
+            console.warn(`Reaction event received but username lookup failed for user_id ${reaction.user_id}.`);
         }
       } catch (err) {
         console.error('Failed to handle reaction_added event:', err);

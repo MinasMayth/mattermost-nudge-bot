@@ -87,7 +87,7 @@ describe('createReactionMonitor', () => {
       createdAtMs: 0,
     });
 
-    expect(monitor.recordReaction({ postId: 'p1', username: 'alice' })).toBe(true);
+    expect(monitor.recordReaction({ postId: 'p1', username: 'alice' }).recognized).toBe(true);
 
     const expired = monitor.collectExpired(1001);
     expect(expired).toHaveLength(1);
@@ -111,6 +111,25 @@ describe('createReactionMonitor', () => {
     monitor.recordReaction({ postId: 'p1', username: 'alice' });
     monitor.recordReaction({ postId: 'p1', username: 'bob' });
 
+    expect(monitor.collectExpired(1001)).toEqual([]);
+  });
+
+  test('accepts @ prefix in configured usernames and reactions', () => {
+    const monitor = createReactionMonitor({
+      channelId: 'target-channel',
+      monitoredUsernames: ['@alice'],
+      timeoutMs: 1000,
+    });
+
+    monitor.trackPost({
+      postId: 'p1',
+      channelId: 'target-channel',
+      authorUsername: 'charlie',
+      createdAtMs: 0,
+    });
+
+    const result = monitor.recordReaction({ postId: 'p1', username: '@alice' });
+    expect(result.recognized).toBe(true);
     expect(monitor.collectExpired(1001)).toEqual([]);
   });
 });

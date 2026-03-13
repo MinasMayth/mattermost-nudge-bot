@@ -21,7 +21,7 @@ function createReactionMonitor(options) {
 
   const monitoredSet = new Set(
     monitoredUsernames
-      .map((name) => String(name || '').trim().toLowerCase())
+      .map((name) => String(name || '').trim().replace(/^@/, '').toLowerCase())
       .filter(Boolean),
   );
 
@@ -52,13 +52,26 @@ function createReactionMonitor(options) {
   }
 
   function recordReaction(reaction) {
-    if (!reaction || !reaction.postId || !reaction.username) return false;
+    if (!reaction || !reaction.postId || !reaction.username) {
+      return { recognized: false };
+    }
     const record = pendingByPostId.get(reaction.postId);
-    if (!record) return false;
+    if (!record) {
+      return { recognized: false };
+    }
 
-    const username = String(reaction.username).trim().toLowerCase();
-    if (!username) return false;
-    return record.pendingUsernames.delete(username);
+    const username = String(reaction.username).trim().replace(/^@/, '').toLowerCase();
+    if (!username) {
+      return { recognized: false };
+    }
+
+    const recognized = record.pendingUsernames.delete(username);
+    return {
+      recognized,
+      channelId: record.channelId,
+      postId: reaction.postId,
+      username,
+    };
   }
 
   function collectExpired(nowMs) {

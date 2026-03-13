@@ -71,10 +71,12 @@ NUDGE_ALERT_THRESHOLD=5
 REACTION_MONITOR_CHANNEL_IDS=channelid1,channelid2
 # Backward-compatible single channel ID option
 REACTION_MONITOR_CHANNEL_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
-# Comma-separated usernames that must react before timeout
+# Comma-separated usernames that must react before timeout (with or without @)
 REACTION_MONITOR_USERS=alice,bob,charlie
 # Timeout window in minutes (default: 60)
 REACTION_TIMEOUT_MINUTES=60
+# Post a channel confirmation when a reaction is recognized (default: false)
+REACTION_MONITOR_CONFIRM_REACTIONS=true
 ```
 
 ### 3. Start
