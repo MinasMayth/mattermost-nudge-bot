@@ -7,16 +7,47 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const { dispatch } = require('./commands');
+const storage = require('./storage');
+const { sendAlert } = require('./mailer');
+const { createReactionMonitor } = require('./reaction-monitor');
 
 const {
   MATTERMOST_URL,
   MATTERMOST_TOKEN,
+  STORAGE_FILE,
+  NUDGE_ALERT_THRESHOLD,
+  REACTION_MONITOR_CHANNEL_IDS,
+  REACTION_MONITOR_CHANNEL_ID,
+  REACTION_MONITOR_USERS,
+  REACTION_TIMEOUT_MINUTES,
 } = process.env;
 
 if (!MATTERMOST_URL || !MATTERMOST_TOKEN) {
   console.error('MATTERMOST_URL and MATTERMOST_TOKEN must be set in your environment or .env file.');
   process.exit(1);
 }
+
+const monitorChannelIds = String(
+  REACTION_MONITOR_CHANNEL_IDS || REACTION_MONITOR_CHANNEL_ID || '',
+)
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean);
+const monitorUsers = String(REACTION_MONITOR_USERS || '')
+  .split(',')
+  .map((name) => name.trim().toLowerCase())
+  .filter(Boolean);
+const reactionTimeoutMinutes = parseInt(REACTION_TIMEOUT_MINUTES || '60', 10);
+const reactionMonitorEnabled = monitorChannelIds.length > 0 && monitorUsers.length > 0;
+const alertThreshold = parseInt(NUDGE_ALERT_THRESHOLD || '5', 10);
+
+const reactionMonitor = createReactionMonitor({
+  channelIds: monitorChannelIds,
+  monitoredUsernames: monitorUsers,
+  timeoutMs: Math.max(1, reactionTimeoutMinutes) * 60 * 1000,
+});
+const userIdCache = new Map();
+let reactionTimeoutInterval = null;
 
 /**
  * Make a JSON REST API request to the Mattermost server.
@@ -64,6 +95,42 @@ const client = {
   },
 };
 
+async function getUsernameById(userId) {
+  if (!userId) return null;
+  if (userIdCache.has(userId)) return userIdCache.get(userId);
+
+  const user = await apiRequest('GET', `/users/${userId}`);
+  if (!user || !user.username) return null;
+  userIdCache.set(userId, user.username);
+  return user.username;
+}
+
+async function processExpiredReactionTimeouts() {
+  const expired = reactionMonitor.collectExpired(Date.now());
+  if (expired.length === 0) return;
+
+  for (const item of expired) {
+    for (const username of item.missingUsernames) {
+      const result = storage.recordNudge(username, 'reaction-monitor', {
+        filePath: STORAGE_FILE,
+        threshold: alertThreshold,
+      });
+
+      const note = `@${username} did not react in time in the monitored channel and now has ${result.count} nudge(s) this month.`;
+      await client.postMessage(note, item.channelId);
+
+      if (result.alerted) {
+        try {
+          await sendAlert(username, result.count);
+          console.log(`Alert sent for @${username} (${result.count} nudges).`);
+        } catch (err) {
+          console.error(`Failed to send alert for @${username}:`, err.message);
+        }
+      }
+    }
+  }
+}
+
 /**
  * Connect to the Mattermost WebSocket event stream and dispatch incoming
  * channel posts to the command handlers.
@@ -71,6 +138,19 @@ const client = {
 async function start() {
   const me = await apiRequest('GET', '/users/me');
   console.log(`Logged in as @${me.username} (id: ${me.id})`);
+
+  if (reactionMonitorEnabled) {
+    console.log(
+      `Reaction monitor enabled for channels ${monitorChannelIds.join(', ')} with timeout ${reactionTimeoutMinutes} minute(s) for users: ${monitorUsers.join(', ')}`,
+    );
+    if (!reactionTimeoutInterval) {
+      reactionTimeoutInterval = setInterval(() => {
+        processExpiredReactionTimeouts().catch((err) => {
+          console.error('Failed processing reaction timeouts:', err);
+        });
+      }, 15000);
+    }
+  }
 
   const base = new URL(MATTERMOST_URL);
   const wsProtocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -98,6 +178,22 @@ async function start() {
       return;
     }
 
+    if (reactionMonitorEnabled && event.event === 'reaction_added') {
+      try {
+        const reaction = JSON.parse(event.data.reaction || '{}');
+        const username = await getUsernameById(reaction.user_id);
+        if (username) {
+          reactionMonitor.recordReaction({
+            postId: reaction.post_id,
+            username,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to handle reaction_added event:', err);
+      }
+      return;
+    }
+
     if (event.event !== 'posted') return;
 
     let post;
@@ -114,6 +210,15 @@ async function start() {
     const senderUsername = event.data.sender_name
       ? event.data.sender_name.replace(/^@/, '')
       : post.user_id;
+
+    if (reactionMonitorEnabled) {
+      reactionMonitor.trackPost({
+        postId: post.id,
+        channelId: post.channel_id,
+        authorUsername: senderUsername,
+        createdAtMs: post.create_at || Date.now(),
+      });
+    }
 
     try {
       await dispatch(post, senderUsername, client);

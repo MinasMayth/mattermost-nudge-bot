@@ -1,8 +1,9 @@
 # mattermost-nudge-bot
 
-A Mattermost bot that tracks **nudges** (Anstupser) per user and automatically
-sends an alert e-mail to `ak-crewcare@krakelee.org` when someone receives **5 or
-more nudges in a single calendar month**.
+A Mattermost bot that tracks **nudges** (Anstupser) per user based on **missed
+reactions** in a monitored channel and automatically sends an alert e-mail to
+`ak-crewcare@krakelee.org` when someone receives **5 or more nudges in a single
+calendar month**.
 
 ---
 
@@ -10,8 +11,11 @@ more nudges in a single calendar month**.
 
 | Command | Description |
 |---|---|
-| `!nudge @username` | Nudge a user. Records the nudge and replies with the current monthly count. When the threshold is reached for the first time that month, an alert e-mail is sent automatically. |
+| `!nudge @username` | Disabled for setting nudges. The bot replies that nudges are automatic via reaction timeouts. |
 | `!nudges` | Disabled by design (leaderboards are not shown). |
+
+Primary nudge flow: configure reaction monitoring so nudges are created
+automatically when monitored users do not react in time.
 
 ---
 
@@ -61,6 +65,16 @@ STORAGE_FILE=./nudges.json
 
 # Number of nudges per month that trigger the alert e-mail (default: 5)
 NUDGE_ALERT_THRESHOLD=5
+
+# Reaction monitor setup (recommended)
+# Comma-separated channel IDs where posts are monitored
+REACTION_MONITOR_CHANNEL_IDS=channelid1,channelid2
+# Backward-compatible single channel ID option
+REACTION_MONITOR_CHANNEL_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
+# Comma-separated usernames that must react before timeout
+REACTION_MONITOR_USERS=alice,bob,charlie
+# Timeout window in minutes (default: 60)
+REACTION_TIMEOUT_MINUTES=60
 ```
 
 ### 3. Start
@@ -74,12 +88,16 @@ npm start
 ## How it works
 
 1. The bot connects to the Mattermost WebSocket event stream.
-2. Every time a channel message matches `!nudge @username`, the nudge is
-   written to a local JSON file (`nudges.json` by default).
-3. Nudges are scoped to the **calendar month** in which they occur.
-4. The first time a user's nudge count reaches the configured threshold (default
+2. For every new post in `REACTION_MONITOR_CHANNEL_IDS` (or `REACTION_MONITOR_CHANNEL_ID`), the bot starts a timeout
+   window (`REACTION_TIMEOUT_MINUTES`).
+3. The usernames listed in `REACTION_MONITOR_USERS` are expected to react to the
+   post before the timeout.
+4. If a configured user did not react in time, the bot records one nudge for
+   that user in `nudges.json` and posts a channel message.
+5. Nudges are scoped to the **calendar month** in which they occur.
+6. The first time a user's nudge count reaches the configured threshold (default
    **5**) in a given month, the bot sends an e-mail to the alert address.
-5. Subsequent nudges in the same month do **not** send additional alert e-mails
+7. Subsequent nudges in the same month do **not** send additional alert e-mails
    (the "alerted" flag is persisted to disk).
 
 ---

@@ -1,8 +1,5 @@
 'use strict';
 
-const storage = require('./storage');
-const { sendAlert } = require('./mailer');
-
 /**
  * Extract a Mattermost @mention username from a string.
  * Strips the leading "@" and any trailing punctuation.
@@ -21,43 +18,10 @@ function parseMention(text) {
  * @param {object} [opts]    – Overrides (filePath, threshold, now, alertOpts)
  */
 async function handleNudge(message, senderUsername, client, opts) {
-  const o = opts || {};
-  const text = message.message || '';
-
-  const targetUsername = parseMention(text);
-  if (!targetUsername) {
-    await client.postMessage(
-      'Usage: `!nudge @username` – please specify who to nudge.',
-      message.channel_id,
-    );
-    return;
-  }
-
-  if (targetUsername === senderUsername) {
-    await client.postMessage(
-      "You can't nudge yourself :smile:",
-      message.channel_id,
-    );
-    return;
-  }
-
-  const result = storage.recordNudge(targetUsername, senderUsername, {
-    filePath: o.filePath,
-    threshold: o.threshold,
-    now: o.now,
-  });
-
-  const reply = `@${targetUsername} has been nudged! They now have ${result.count} nudge(s) this month.`;
-  await client.postMessage(reply, message.channel_id);
-
-  if (result.alerted) {
-    try {
-      await sendAlert(targetUsername, result.count, o.alertOpts);
-      console.log(`Alert sent for @${targetUsername} (${result.count} nudges).`);
-    } catch (err) {
-      console.error(`Failed to send alert for @${targetUsername}:`, err.message);
-    }
-  }
+  await client.postMessage(
+    'Manual nudges are disabled. Nudges are created automatically when monitored users do not react in time.',
+    message.channel_id,
+  );
 }
 
 /**

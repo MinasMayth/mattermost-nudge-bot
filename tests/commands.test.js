@@ -32,7 +32,7 @@ describe('parseMention', () => {
 });
 
 describe('handleNudge', () => {
-  test('replies with error when no mention given', async () => {
+  test('always reports that manual nudges are disabled', async () => {
     const file = tmpFile();
     const client = mockClient();
     const msg = { message: '!nudge', channel_id: 'ch1' };
@@ -40,66 +40,18 @@ describe('handleNudge', () => {
     await handleNudge(msg, 'alice', client, { filePath: file });
 
     expect(client.postMessage).toHaveBeenCalledTimes(1);
-    expect(client.messages[0].text).toMatch(/Usage/i);
+    expect(client.messages[0].text).toMatch(/manual nudges are disabled/i);
   });
 
-  test('prevents self-nudge', async () => {
+  test('does not write nudge data when command is used', async () => {
     const file = tmpFile();
     const client = mockClient();
     const msg = { message: '!nudge @alice', channel_id: 'ch1' };
 
     await handleNudge(msg, 'alice', client, { filePath: file });
 
-    expect(client.messages[0].text).toMatch(/can't nudge yourself/i);
-  });
-
-  test('records nudge and replies with count', async () => {
-    const file = tmpFile();
-    const client = mockClient();
-    const now = new Date('2025-09-01T10:00:00Z');
-    const msg = { message: '!nudge @bob', channel_id: 'ch1' };
-
-    await handleNudge(msg, 'alice', client, { filePath: file, now });
-
-    expect(client.postMessage).toHaveBeenCalledTimes(1);
-    expect(client.messages[0].text).toMatch(/@bob/);
-    expect(client.messages[0].text).toMatch(/1 nudge/);
-
-    fs.unlinkSync(file);
-  });
-
-  test('triggers alert and calls sendAlert at threshold', async () => {
-    const file = tmpFile();
-    const now = new Date('2025-09-01T10:00:00Z');
-    const sentAlerts = [];
-
-    const fakeAlertOpts = {
-      transporter: {
-        sendMail: async (mail) => {
-          sentAlerts.push(mail);
-          return {};
-        },
-      },
-      alertEmail: 'ak-crewcare@krakelee.org',
-    };
-
-    for (let i = 1; i <= 4; i++) {
-      const client = mockClient();
-      const msg = { message: `!nudge @target`, channel_id: 'ch1' };
-      await handleNudge(msg, `user${i}`, client, { filePath: file, threshold: 5, now, alertOpts: fakeAlertOpts });
-    }
-
-    expect(sentAlerts).toHaveLength(0);
-
-    const client5 = mockClient();
-    const msg5 = { message: '!nudge @target', channel_id: 'ch1' };
-    await handleNudge(msg5, 'user5', client5, { filePath: file, threshold: 5, now, alertOpts: fakeAlertOpts });
-
-    expect(sentAlerts).toHaveLength(1);
-    expect(sentAlerts[0].to).toBe('ak-crewcare@krakelee.org');
-    expect(sentAlerts[0].subject).toMatch(/target/);
-
-    fs.unlinkSync(file);
+    expect(client.messages[0].text).toMatch(/automatic/i);
+    expect(fs.existsSync(file)).toBe(false);
   });
 });
 
@@ -146,9 +98,7 @@ describe('dispatch', () => {
     await dispatch(msg, 'alice', client, { filePath: file });
 
     expect(client.postMessage).toHaveBeenCalled();
-    expect(client.messages[0].text).toMatch(/@dave/);
-
-    fs.unlinkSync(file);
+    expect(client.messages[0].text).toMatch(/manual nudges are disabled/i);
   });
 
   test('routes !nudges to handleNudges', async () => {
