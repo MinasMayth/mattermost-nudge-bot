@@ -53,21 +53,32 @@ function createReactionMonitor(options) {
 
   function recordReaction(reaction) {
     if (!reaction || !reaction.postId || !reaction.username) {
-      return { recognized: false };
+      return { recognized: false, reason: 'invalid-reaction' };
     }
     const record = pendingByPostId.get(reaction.postId);
     if (!record) {
-      return { recognized: false };
+      return { recognized: false, reason: 'post-not-tracked' };
     }
 
     const username = String(reaction.username).trim().replace(/^@/, '').toLowerCase();
     if (!username) {
-      return { recognized: false };
+      return { recognized: false, reason: 'invalid-username' };
+    }
+
+    if (!record.pendingUsernames.has(username)) {
+      return {
+        recognized: false,
+        reason: 'user-not-pending',
+        channelId: record.channelId,
+        postId: reaction.postId,
+        username,
+      };
     }
 
     const recognized = record.pendingUsernames.delete(username);
     return {
       recognized,
+      reason: recognized ? 'recognized' : 'user-not-pending',
       channelId: record.channelId,
       postId: reaction.postId,
       username,

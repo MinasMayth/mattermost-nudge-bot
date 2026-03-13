@@ -38,8 +38,9 @@ const monitorUsers = String(REACTION_MONITOR_USERS || '')
   .split(',')
   .map((name) => name.trim().replace(/^@/, '').toLowerCase())
   .filter(Boolean);
+const uniqueMonitorUsers = Array.from(new Set(monitorUsers));
 const reactionTimeoutMinutes = parseInt(REACTION_TIMEOUT_MINUTES || '60', 10);
-const reactionMonitorEnabled = monitorChannelIds.length > 0 && monitorUsers.length > 0;
+const reactionMonitorEnabled = monitorChannelIds.length > 0 && uniqueMonitorUsers.length > 0;
 const alertThreshold = parseInt(NUDGE_ALERT_THRESHOLD || '5', 10);
 const confirmReactionsEnabled = /^(1|true|yes|on)$/i.test(
   String(REACTION_MONITOR_CONFIRM_REACTIONS || ''),
@@ -47,7 +48,7 @@ const confirmReactionsEnabled = /^(1|true|yes|on)$/i.test(
 
 const reactionMonitor = createReactionMonitor({
   channelIds: monitorChannelIds,
-  monitoredUsernames: monitorUsers,
+  monitoredUsernames: uniqueMonitorUsers,
   timeoutMs: Math.max(1, reactionTimeoutMinutes) * 60 * 1000,
 });
 const userIdCache = new Map();
@@ -151,6 +152,23 @@ async function processExpiredReactionTimeouts() {
   }
 }
 
+async function tryTrackPostById(postId) {
+  if (!postId) return false;
+
+  const post = await apiRequest('GET', `/posts/${postId}`);
+  if (!post || !post.id || !post.channel_id || !post.user_id) return false;
+
+  const authorUsername = await getUsernameById(post.user_id);
+  if (!authorUsername) return false;
+
+  return reactionMonitor.trackPost({
+    postId: post.id,
+    channelId: post.channel_id,
+    authorUsername,
+    createdAtMs: post.create_at || Date.now(),
+  });
+}
+
 /**
  * Connect to the Mattermost WebSocket event stream and dispatch incoming
  * channel posts to the command handlers.
@@ -161,7 +179,7 @@ async function start() {
 
   if (reactionMonitorEnabled) {
     console.log(
-      `Reaction monitor enabled for channels ${monitorChannelIds.join(', ')} with timeout ${reactionTimeoutMinutes} minute(s) for users: ${monitorUsers.join(', ')}`,
+      `Reaction monitor enabled for channels ${monitorChannelIds.join(', ')} with timeout ${reactionTimeoutMinutes} minute(s) for users: ${uniqueMonitorUsers.join(', ')}`,
     );
     if (!reactionTimeoutInterval) {
       reactionTimeoutInterval = setInterval(() => {
@@ -207,10 +225,20 @@ async function start() {
           }
         const username = await getUsernameById(reaction.user_id);
         if (username) {
-            const result = reactionMonitor.recordReaction({
+            let result = reactionMonitor.recordReaction({
             postId: reaction.post_id,
             username,
           });
+
+            if (!result.recognized && result.reason === 'post-not-tracked') {
+              const tracked = await tryTrackPostById(reaction.post_id);
+              if (tracked) {
+                result = reactionMonitor.recordReaction({
+                  postId: reaction.post_id,
+                  username,
+                });
+              }
+            }
 
             if (result.recognized) {
               console.log(`Reaction recognized for post ${result.postId} from @${result.username}.`);
@@ -222,7 +250,9 @@ async function start() {
                 );
             }
           } else {
-              console.log(`Reaction ignored for post ${reaction.post_id} from @${username} (post not tracked or user not pending).`);
+              console.log(
+                `Reaction ignored for post ${reaction.post_id} from @${username} (reason: ${result.reason || 'unknown'}).`,
+              );
             }
           } else {
             console.warn(`Reaction event received but username lookup failed for user_id ${reaction.user_id}.`);
@@ -249,12 +279,15 @@ async function start() {
       : post.user_id;
 
     if (reactionMonitorEnabled) {
-      reactionMonitor.trackPost({
+        const tracked = reactionMonitor.trackPost({
         postId: post.id,
         channelId: post.channel_id,
         authorUsername: senderUsername,
         createdAtMs: post.create_at || Date.now(),
       });
+        if (tracked) {
+          console.log(`Tracking monitored post ${post.id} in channel ${post.channel_id}.`);
+        }
     }
 
     try {
