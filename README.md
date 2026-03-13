@@ -11,7 +11,7 @@ more nudges in a single calendar month**.
 | Command | Description |
 |---|---|
 | `!nudge @username` | Nudge a user. Records the nudge and replies with the current monthly count. When the threshold is reached for the first time that month, an alert e-mail is sent automatically. |
-| `!nudges` | Show the nudge leaderboard for the current month. Users who have already triggered an alert are marked with 🚨. |
+| `!nudges` | Disabled by design (leaderboards are not shown). |
 
 ---
 
@@ -97,7 +97,7 @@ npm test
 ```
 src/
   bot.js        Main entry point – WebSocket connection & event routing
-  commands.js   Command parsing and dispatch (!nudge, !nudges)
+   commands.js   Command parsing and dispatch (!nudge, !nudges disabled)
   storage.js    Nudge persistence (JSON file)
   mailer.js     Alert e-mail sending (nodemailer)
 tests/

@@ -61,30 +61,18 @@ async function handleNudge(message, senderUsername, client, opts) {
 }
 
 /**
- * Handle the `!nudges` command – show the nudge leaderboard for this month.
+ * Handle the `!nudges` command.
+ *
+ * Leaderboards are intentionally disabled to avoid exposing per-user counts.
  *
  * @param {object} message
  * @param {object} client
- * @param {object} [opts]
  */
-async function handleNudges(message, client, opts) {
-  const o = opts || {};
-  const summary = storage.getMonthSummary({ filePath: o.filePath, now: o.now });
-
-  if (summary.length === 0) {
-    await client.postMessage(
-      'No nudges recorded this month yet. :thumbsup:',
-      message.channel_id,
-    );
-    return;
-  }
-
-  const lines = ['**Nudge overview for this month:**', ''];
-  for (const entry of summary) {
-    const flag = entry.alerted ? ' :rotating_light:' : '';
-    lines.push(`• @${entry.username}: ${entry.count} nudge(s)${flag}`);
-  }
-  await client.postMessage(lines.join('\n'), message.channel_id);
+async function handleNudges(message, client) {
+  await client.postMessage(
+    'The `!nudges` leaderboard is disabled on this bot.',
+    message.channel_id,
+  );
 }
 
 /**

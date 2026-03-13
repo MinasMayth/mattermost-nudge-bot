@@ -104,17 +104,17 @@ describe('handleNudge', () => {
 });
 
 describe('handleNudges', () => {
-  test('reports no nudges when month is empty', async () => {
+  test('always reports leaderboard is disabled', async () => {
     const file = tmpFile();
     const client = mockClient();
     const msg = { message: '!nudges', channel_id: 'ch1' };
 
     await handleNudges(msg, client, { filePath: file });
 
-    expect(client.messages[0].text).toMatch(/No nudges/i);
+    expect(client.messages[0].text).toMatch(/leaderboard is disabled/i);
   });
 
-  test('lists nudge counts', async () => {
+  test('does not list user counts', async () => {
     const file = tmpFile();
     const now = new Date('2025-09-01T10:00:00Z');
 
@@ -129,9 +129,9 @@ describe('handleNudges', () => {
     await handleNudges(msg, client, { filePath: file, now });
 
     const reply = client.messages[0].text;
-    expect(reply).toMatch(/bob/);
-    expect(reply).toMatch(/2/);
-    expect(reply).toMatch(/charlie/);
+    expect(reply).toMatch(/leaderboard is disabled/i);
+    expect(reply).not.toMatch(/bob/);
+    expect(reply).not.toMatch(/charlie/);
 
     fs.unlinkSync(file);
   });
