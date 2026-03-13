@@ -103,7 +103,7 @@ npm start
 4. The usernames listed in `REACTION_MONITOR_USERS` are expected to react to the
    post before the timeout.
 5. If a configured user did not react in time, the bot records one nudge for
-   that user in `nudges.json` and posts a channel message.
+   that user in `nudges.json` and sends them a direct message.
 6. Nudges are scoped to the **calendar month** in which they occur.
 7. The first time a user's nudge count reaches the configured threshold (default
    **5**) in a given month, the bot sends an e-mail to the alert address.

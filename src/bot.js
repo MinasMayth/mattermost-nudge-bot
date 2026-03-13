@@ -62,6 +62,9 @@ const reactionMonitor = createReactionMonitor({
   timeoutMs: Math.max(1, reactionTimeoutMinutes) * 60 * 1000,
 });
 const userIdCache = new Map();
+const usernameIdCache = new Map();
+const directChannelCache = new Map();
+let botUserId = null;
 let reactionTimeoutInterval = null;
 
 /**
@@ -133,7 +136,32 @@ async function getUsernameById(userId) {
   const user = await apiRequest('GET', `/users/${userId}`);
   if (!user || !user.username) return null;
   userIdCache.set(userId, user.username);
+  usernameIdCache.set(String(user.username).toLowerCase(), userId);
   return user.username;
+}
+
+async function getUserIdByUsername(username) {
+  const cleanUsername = String(username || '').trim().replace(/^@/, '').toLowerCase();
+  if (!cleanUsername) return null;
+  if (usernameIdCache.has(cleanUsername)) return usernameIdCache.get(cleanUsername);
+
+  const user = await apiRequest('GET', `/users/username/${encodeURIComponent(cleanUsername)}`);
+  if (!user || !user.id || !user.username) return null;
+
+  userIdCache.set(user.id, user.username);
+  usernameIdCache.set(String(user.username).toLowerCase(), user.id);
+  return user.id;
+}
+
+async function getDirectChannelIdForUser(userId) {
+  if (!botUserId || !userId) return null;
+  if (directChannelCache.has(userId)) return directChannelCache.get(userId);
+
+  const channel = await apiRequest('POST', '/channels/direct', [botUserId, userId]);
+  if (!channel || !channel.id) return null;
+
+  directChannelCache.set(userId, channel.id);
+  return channel.id;
 }
 
 async function processExpiredReactionTimeouts() {
@@ -148,7 +176,20 @@ async function processExpiredReactionTimeouts() {
       });
 
       const note = `@${username} did not react in time in the monitored channel and now has ${result.count} nudge(s) this month.`;
-      await client.postMessage(note, item.channelId);
+      try {
+        const userId = await getUserIdByUsername(username);
+        const directChannelId = userId ? await getDirectChannelIdForUser(userId) : null;
+
+        if (directChannelId) {
+          await client.postMessage(note, directChannelId);
+        } else {
+          console.warn(`Failed to open DM for @${username}, posting nudge message in source channel.`);
+          await client.postMessage(note, item.channelId);
+        }
+      } catch (err) {
+        console.warn(`Failed to deliver DM nudge message to @${username}, posting in source channel: ${err.message}`);
+        await client.postMessage(note, item.channelId);
+      }
 
       if (result.alerted) {
         try {
@@ -186,6 +227,7 @@ async function tryTrackPostById(postId, options) {
  */
 async function start() {
   const me = await apiRequest('GET', '/users/me');
+  botUserId = me.id;
   console.log(`Logged in as @${me.username} (id: ${me.id})`);
 
   if (reactionMonitorEnabled) {
