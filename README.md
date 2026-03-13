@@ -77,6 +77,10 @@ REACTION_MONITOR_USERS=alice,bob,charlie
 REACTION_TIMEOUT_MINUTES=60
 # Post a channel confirmation when a reaction is recognized (default: false)
 REACTION_MONITOR_CONFIRM_REACTIONS=true
+# Track only posts explicitly marked by emoji reaction (default: false)
+REACTION_MONITOR_ONLY_MARKED=true
+# Marker emoji used to enable tracking for a post (default: triangular_flag_on_post)
+REACTION_MONITOR_MARKER_EMOJI=triangular_flag_on_post
 ```
 
 ### 3. Start
@@ -90,16 +94,20 @@ npm start
 ## How it works
 
 1. The bot connects to the Mattermost WebSocket event stream.
-2. For every new post in `REACTION_MONITOR_CHANNEL_IDS` (or `REACTION_MONITOR_CHANNEL_ID`), the bot starts a timeout
-   window (`REACTION_TIMEOUT_MINUTES`).
-3. The usernames listed in `REACTION_MONITOR_USERS` are expected to react to the
+2. If `REACTION_MONITOR_ONLY_MARKED=false`, every new post in
+   `REACTION_MONITOR_CHANNEL_IDS` (or `REACTION_MONITOR_CHANNEL_ID`) starts a
+   timeout window (`REACTION_TIMEOUT_MINUTES`).
+3. If `REACTION_MONITOR_ONLY_MARKED=true`, a post starts tracking only after
+   someone reacts to it with `REACTION_MONITOR_MARKER_EMOJI` (default
+   `:triangular_flag_on_post:`).
+4. The usernames listed in `REACTION_MONITOR_USERS` are expected to react to the
    post before the timeout.
-4. If a configured user did not react in time, the bot records one nudge for
+5. If a configured user did not react in time, the bot records one nudge for
    that user in `nudges.json` and posts a channel message.
-5. Nudges are scoped to the **calendar month** in which they occur.
-6. The first time a user's nudge count reaches the configured threshold (default
+6. Nudges are scoped to the **calendar month** in which they occur.
+7. The first time a user's nudge count reaches the configured threshold (default
    **5**) in a given month, the bot sends an e-mail to the alert address.
-7. Subsequent nudges in the same month do **not** send additional alert e-mails
+8. Subsequent nudges in the same month do **not** send additional alert e-mails
    (the "alerted" flag is persisted to disk).
 
 ---

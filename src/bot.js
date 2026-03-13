@@ -21,6 +21,8 @@ const {
   REACTION_MONITOR_USERS,
   REACTION_TIMEOUT_MINUTES,
   REACTION_MONITOR_CONFIRM_REACTIONS,
+  REACTION_MONITOR_ONLY_MARKED,
+  REACTION_MONITOR_MARKER_EMOJI,
 } = process.env;
 
 if (!MATTERMOST_URL || !MATTERMOST_TOKEN) {
@@ -45,6 +47,14 @@ const alertThreshold = parseInt(NUDGE_ALERT_THRESHOLD || '5', 10);
 const confirmReactionsEnabled = /^(1|true|yes|on)$/i.test(
   String(REACTION_MONITOR_CONFIRM_REACTIONS || ''),
 );
+const onlyMarkedEnabled = /^(1|true|yes|on)$/i.test(
+  String(REACTION_MONITOR_ONLY_MARKED || ''),
+);
+const markerEmoji = String(REACTION_MONITOR_MARKER_EMOJI || 'triangular_flag_on_post')
+  .trim()
+  .replace(/^:/, '')
+  .replace(/:$/, '')
+  .toLowerCase();
 
 const reactionMonitor = createReactionMonitor({
   channelIds: monitorChannelIds,
@@ -152,7 +162,8 @@ async function processExpiredReactionTimeouts() {
   }
 }
 
-async function tryTrackPostById(postId) {
+async function tryTrackPostById(postId, options) {
+  const opts = options || {};
   if (!postId) return false;
 
   const post = await apiRequest('GET', `/posts/${postId}`);
@@ -165,7 +176,7 @@ async function tryTrackPostById(postId) {
     postId: post.id,
     channelId: post.channel_id,
     authorUsername,
-    createdAtMs: post.create_at || Date.now(),
+    createdAtMs: opts.createdAtMs != null ? opts.createdAtMs : (post.create_at || Date.now()),
   });
 }
 
@@ -181,6 +192,9 @@ async function start() {
     console.log(
       `Reaction monitor enabled for channels ${monitorChannelIds.join(', ')} with timeout ${reactionTimeoutMinutes} minute(s) for users: ${uniqueMonitorUsers.join(', ')}`,
     );
+    if (onlyMarkedEnabled) {
+      console.log(`Only marked posts are tracked (marker emoji: :${markerEmoji}:).`);
+    }
     if (!reactionTimeoutInterval) {
       reactionTimeoutInterval = setInterval(() => {
         processExpiredReactionTimeouts().catch((err) => {
@@ -223,6 +237,8 @@ async function start() {
             console.warn('Reaction event ignored because payload was missing post_id/user_id.');
             return;
           }
+          const reactionEmoji = String(reaction.emoji_name || '').trim().toLowerCase();
+          const isMarkerReaction = reactionEmoji === markerEmoji;
         const username = await getUsernameById(reaction.user_id);
         if (username) {
             let result = reactionMonitor.recordReaction({
@@ -231,7 +247,21 @@ async function start() {
           });
 
             if (!result.recognized && result.reason === 'post-not-tracked') {
-              const tracked = await tryTrackPostById(reaction.post_id);
+              let tracked = false;
+
+              if (onlyMarkedEnabled) {
+                if (isMarkerReaction) {
+                  tracked = await tryTrackPostById(reaction.post_id, { createdAtMs: Date.now() });
+                  if (tracked) {
+                    console.log(
+                      `Tracking enabled for post ${reaction.post_id} after marker reaction :${markerEmoji}: by @${username}.`,
+                    );
+                  }
+                }
+              } else {
+                tracked = await tryTrackPostById(reaction.post_id);
+              }
+
               if (tracked) {
                 result = reactionMonitor.recordReaction({
                   postId: reaction.post_id,
@@ -279,14 +309,16 @@ async function start() {
       : post.user_id;
 
     if (reactionMonitorEnabled) {
-        const tracked = reactionMonitor.trackPost({
-        postId: post.id,
-        channelId: post.channel_id,
-        authorUsername: senderUsername,
-        createdAtMs: post.create_at || Date.now(),
-      });
-        if (tracked) {
-          console.log(`Tracking monitored post ${post.id} in channel ${post.channel_id}.`);
+        if (!onlyMarkedEnabled) {
+          const tracked = reactionMonitor.trackPost({
+            postId: post.id,
+            channelId: post.channel_id,
+            authorUsername: senderUsername,
+            createdAtMs: post.create_at || Date.now(),
+          });
+          if (tracked) {
+            console.log(`Tracking monitored post ${post.id} in channel ${post.channel_id}.`);
+          }
         }
     }
 
